@@ -115,6 +115,7 @@ type NetworkRoutingController struct {
 	localAddressList               []string
 	overrideNextHop                bool
 	podCidr                        string
+	isLocal                        bool
 	CNIFirewallSetup               *sync.Cond
 
 	nodeLister cache.Indexer
@@ -674,6 +675,12 @@ func (nrc *NetworkRoutingController) syncNodeIPSets() error {
 		if podCIDR == "" {
 			podCIDR = node.Spec.PodCIDR
 		}
+
+		// podCIDR is local and will never change. This breaks node-to-node routing, use wisely
+		if nrc.isLocal {
+			podCIDR = nrc.podCidr
+		}
+
 		if podCIDR == "" {
 			glog.Warningf("Couldn't determine PodCIDR of the %v node", node.Name)
 			continue
@@ -1170,6 +1177,10 @@ func NewNetworkRoutingController(clientset kubernetes.Interface,
 
 	nrc.nodeLister = nodeInformer.GetIndexer()
 	nrc.NodeEventHandler = nrc.newNodeEventHandler()
+
+	if kubeRouterConfig.PodCIDR != "" {
+		nrc.isLocal = true
+	}
 
 	return &nrc, nil
 }
