@@ -199,6 +199,58 @@ func Test_GetPodCidrFromNodeSpec(t *testing.T) {
 	}
 }
 
+func Test_GetPodCIDRFromArgument(t *testing.T) {
+	type testCase struct {
+		name             string
+		hostnameOverride string
+		existingNode     *apiv1.Node
+		podCIDR          string
+		err              error
+	}
+
+	test := &testCase{
+		"node with podCIDR pre-defined",
+		"test-node",
+		&apiv1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-node",
+			},
+			Spec: apiv1.NodeSpec{
+				PodCIDR: "172.18.0.0/24",
+			},
+		},
+		"172.17.0.0/24",
+		nil,
+	}
+
+	t.Run(test.name, func(t *testing.T) {
+		clientset := fake.NewSimpleClientset()
+		_, err := clientset.CoreV1().Nodes().Create(context.Background(), test.existingNode, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("failed to create existing nodes for test: %v", err)
+		}
+
+		podCIDR, err := GetPodCidrFromNodeSpec(clientset, test.hostnameOverride, test.podCIDR)
+		if !reflect.DeepEqual(err, test.err) {
+			t.Logf("actual error: %v", err)
+			t.Logf("expected error: %v", test.err)
+			t.Error("did not get expected error")
+		}
+
+		if podCIDR != test.podCIDR {
+			t.Logf("actual podCIDR: %q", podCIDR)
+			t.Logf("expected podCIDR: %q", test.podCIDR)
+			t.Error("did not get expected podCIDR")
+		}
+
+		if podCIDR == test.existingNode.Spec.PodCIDR {
+			t.Logf("node.spec podCIDR: %q", test.existingNode.Spec.PodCIDR)
+			t.Logf("expected podCIDR from argument: %q", test.podCIDR)
+			t.Error("did not get expected podCIDR")
+		}
+	})
+}
+
 func createFile(content, filename string) (*os.File, error) {
 	file, err := os.Create(filename)
 	if err != nil {
