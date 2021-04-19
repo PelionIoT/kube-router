@@ -14,7 +14,7 @@ import (
 	"github.com/cloudnativelabs/kube-router/pkg/metrics"
 	"github.com/cloudnativelabs/kube-router/pkg/options"
 	"github.com/cloudnativelabs/kube-router/pkg/version"
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
 	"time"
 
@@ -78,7 +78,7 @@ func (kr *KubeRouter) Run() error {
 	stopCh := make(chan struct{})
 
 	if !(kr.Config.RunFirewall || kr.Config.RunServiceProxy || kr.Config.RunRouter) {
-		glog.Info("Router, Firewall or Service proxy functionality must be specified. Exiting!")
+		klog.Info("Router, Firewall or Service proxy functionality must be specified. Exiting!")
 		os.Exit(0)
 	}
 
@@ -107,9 +107,9 @@ func (kr *KubeRouter) Run() error {
 	wg.Add(1)
 	go hc.RunCheck(healthChan, stopCh, &wg)
 
-	if (kr.Config.MetricsPort > 0) && (kr.Config.MetricsPort <= 65535) {
+	if kr.Config.MetricsPort > 0 {
 		kr.Config.MetricsEnabled = true
-		mc, err := metrics.NewMetricsController(kr.Client, kr.Config)
+		mc, err := metrics.NewMetricsController(kr.Config)
 		if err != nil {
 			return errors.New("Failed to create metrics controller: " + err.Error())
 		}
@@ -117,7 +117,7 @@ func (kr *KubeRouter) Run() error {
 		go mc.Run(healthChan, stopCh, &wg)
 
 	} else if kr.Config.MetricsPort > 65535 {
-		glog.Errorf("Metrics port must be over 0 and under 65535, given port: %d", kr.Config.MetricsPort)
+		klog.Errorf("Metrics port must be over 0 and under 65535, given port: %d", kr.Config.MetricsPort)
 		kr.Config.MetricsEnabled = false
 	} else {
 		kr.Config.MetricsEnabled = false
@@ -201,14 +201,14 @@ func (kr *KubeRouter) Run() error {
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 
-	glog.Infof("Shutting down the controllers")
+	klog.Infof("Shutting down the controllers")
 	close(stopCh)
 
 	wg.Wait()
 	return nil
 }
 
-// CacheSync performs cache synchronization under timeout limit
+// CacheSyncOrTimeout performs cache synchronization under timeout limit
 func (kr *KubeRouter) CacheSyncOrTimeout(informerFactory informers.SharedInformerFactory, stopCh <-chan struct{}) error {
 	syncOverCh := make(chan struct{})
 	go func() {

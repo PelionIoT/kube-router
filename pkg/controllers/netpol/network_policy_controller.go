@@ -17,8 +17,8 @@ import (
 	"github.com/cloudnativelabs/kube-router/pkg/options"
 	"github.com/cloudnativelabs/kube-router/pkg/utils"
 	"github.com/coreos/go-iptables/iptables"
-	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/klog/v2"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -42,11 +42,11 @@ const (
 // filter table a rule is added to jump the traffic originating (in case of egress network policy) from the pod
 // or destined (in case of ingress network policy) to the pod specific iptables chain. Each
 // pod specific iptables chain has rules to jump to the network polices chains, that pod matches. So packet
-// originating/destined from/to pod goes through fitler table's, FORWARD chain, followed by pod specific chain,
+// originating/destined from/to pod goes through filter table's, FORWARD chain, followed by pod specific chain,
 // followed by one or more network policy chains, till there is a match which will accept the packet, or gets
 // dropped by the rule in the pod chain, if there is no match.
 
-// NetworkPolicyController strcut to hold information required by NetworkPolicyController
+// NetworkPolicyController struct to hold information required by NetworkPolicyController
 type NetworkPolicyController struct {
 	nodeIP                  net.IP
 	nodeHostName            string
@@ -133,21 +133,21 @@ type numericPort2eps map[string]*endPoints
 type protocol2eps map[string]numericPort2eps
 type namedPort2eps map[string]protocol2eps
 
-// Run runs forver till we receive notification on stopCh
+// Run runs forever till we receive notification on stopCh
 func (npc *NetworkPolicyController) Run(healthChan chan<- *healthcheck.ControllerHeartbeat, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	t := time.NewTicker(npc.syncPeriod)
 	defer t.Stop()
 	defer wg.Done()
 
-	glog.Info("Starting network policy controller")
+	klog.Info("Starting network policy controller")
 	npc.healthChan = healthChan
 
-	// setup kube-router specific top level cutoms chains
+	// setup kube-router specific top level custom chains
 	npc.ensureTopLevelChains()
 
 	// Full syncs of the network policy controller take a lot of time and can only be processed one at a time,
 	// therefore, we start it in it's own goroutine and request a sync through a single item channel
-	glog.Info("Starting network policy controller full sync goroutine")
+	klog.Info("Starting network policy controller full sync goroutine")
 	wg.Add(1)
 	go func(fullSyncRequest <-chan struct{}, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 		defer wg.Done()
@@ -155,16 +155,16 @@ func (npc *NetworkPolicyController) Run(healthChan chan<- *healthcheck.Controlle
 			// Add an additional non-blocking select to ensure that if the stopCh channel is closed it is handled first
 			select {
 			case <-stopCh:
-				glog.Info("Shutting down network policies full sync goroutine")
+				klog.Info("Shutting down network policies full sync goroutine")
 				return
 			default:
 			}
 			select {
 			case <-stopCh:
-				glog.Info("Shutting down network policies full sync goroutine")
+				klog.Info("Shutting down network policies full sync goroutine")
 				return
 			case <-fullSyncRequest:
-				glog.V(3).Info("Received request for a full sync, processing")
+				klog.V(3).Info("Received request for a full sync, processing")
 				npc.fullPolicySync() // fullPolicySync() is a blocking request here
 			}
 		}
@@ -172,11 +172,11 @@ func (npc *NetworkPolicyController) Run(healthChan chan<- *healthcheck.Controlle
 
 	// loop forever till notified to stop on stopCh
 	for {
-		glog.V(1).Info("Requesting periodic sync of iptables to reflect network policies")
+		klog.V(1).Info("Requesting periodic sync of iptables to reflect network policies")
 		npc.RequestFullSync()
 		select {
 		case <-stopCh:
-			glog.Infof("Shutting down network policies controller")
+			klog.Infof("Shutting down network policies controller")
 			return
 		case <-t.C:
 		}
@@ -187,9 +187,9 @@ func (npc *NetworkPolicyController) Run(healthChan chan<- *healthcheck.Controlle
 func (npc *NetworkPolicyController) RequestFullSync() {
 	select {
 	case npc.fullSyncRequestChan <- struct{}{}:
-		glog.V(3).Info("Full sync request queue was empty so a full sync request was successfully sent")
+		klog.V(3).Info("Full sync request queue was empty so a full sync request was successfully sent")
 	default: // Don't block if the buffered channel is full, return quickly so that we don't block callee execution
-		glog.V(1).Info("Full sync request queue was full, skipping...")
+		klog.V(1).Info("Full sync request queue was full, skipping...")
 	}
 }
 
@@ -211,52 +211,52 @@ func (npc *NetworkPolicyController) fullPolicySync() {
 			metrics.ControllerIptablesSyncTotalTime.Add(endTime.Seconds())
 			metrics.ControllerIptablesSyncTotalCount.Add(1)
 		}
-		glog.V(1).Infof("sync iptables took %v", endTime)
+		klog.V(1).Infof("sync iptables took %v", endTime)
 	}()
 
-	glog.V(1).Infof("Starting sync of iptables with version: %s", syncVersion)
+	klog.V(1).Infof("Starting sync of iptables with version: %s", syncVersion)
 
 	// ensure kube-router specific top level chains and corresponding rules exist
 	npc.ensureTopLevelChains()
 
 	networkPoliciesInfo, err = npc.buildNetworkPoliciesInfo()
 	if err != nil {
-		glog.Errorf("Aborting sync. Failed to build network policies: %v", err.Error())
+		klog.Errorf("Aborting sync. Failed to build network policies: %v", err.Error())
 		return
 	}
 
 	npc.filterTableRules.Reset()
 	if err := utils.SaveInto("filter", &npc.filterTableRules); err != nil {
-		glog.Errorf("Aborting sync. Failed to run iptables-save: %v" + err.Error())
+		klog.Errorf("Aborting sync. Failed to run iptables-save: %v" + err.Error())
 		return
 	}
 
 	activePolicyChains, activePolicyIPSets, err := npc.syncNetworkPolicyChains(networkPoliciesInfo, syncVersion)
 	if err != nil {
-		glog.Errorf("Aborting sync. Failed to sync network policy chains: %v" + err.Error())
+		klog.Errorf("Aborting sync. Failed to sync network policy chains: %v" + err.Error())
 		return
 	}
 
 	activePodFwChains, err := npc.syncPodFirewallChains(networkPoliciesInfo, syncVersion)
 	if err != nil {
-		glog.Errorf("Aborting sync. Failed to sync pod firewalls: %v", err.Error())
+		klog.Errorf("Aborting sync. Failed to sync pod firewalls: %v", err.Error())
 		return
 	}
 
-	err = npc.cleanupStaleRules(activePolicyChains, activePodFwChains, activePolicyIPSets)
+	err = npc.cleanupStaleRules(activePolicyChains, activePodFwChains)
 	if err != nil {
-		glog.Errorf("Aborting sync. Failed to cleanup stale iptables rules: %v", err.Error())
+		klog.Errorf("Aborting sync. Failed to cleanup stale iptables rules: %v", err.Error())
 		return
 	}
 
 	if err := utils.Restore("filter", npc.filterTableRules.Bytes()); err != nil {
-		glog.Errorf("Aborting sync. Failed to run iptables-restore: %v" + err.Error())
+		klog.Errorf("Aborting sync. Failed to run iptables-restore: %v" + err.Error())
 		return
 	}
 
 	err = npc.cleanupStaleIPSets(activePolicyIPSets)
 	if err != nil {
-		glog.Errorf("Failed to cleanup stale ipsets: %v", err.Error())
+		klog.Errorf("Failed to cleanup stale ipsets: %v", err.Error())
 		return
 	}
 }
@@ -270,7 +270,7 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 
 	iptablesCmdHandler, err := iptables.New()
 	if err != nil {
-		glog.Fatalf("Failed to initialize iptables executor due to %s", err.Error())
+		klog.Fatalf("Failed to initialize iptables executor due to %s", err.Error())
 	}
 
 	addUUIDForRuleSpec := func(chain string, ruleSpec *[]string) (string, error) {
@@ -288,18 +288,18 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 	ensureRuleAtPosition := func(chain string, ruleSpec []string, uuid string, position int) {
 		exists, err := iptablesCmdHandler.Exists("filter", chain, ruleSpec...)
 		if err != nil {
-			glog.Fatalf("Failed to verify rule exists in %s chain due to %s", chain, err.Error())
+			klog.Fatalf("Failed to verify rule exists in %s chain due to %s", chain, err.Error())
 		}
 		if !exists {
 			err := iptablesCmdHandler.Insert("filter", chain, position, ruleSpec...)
 			if err != nil {
-				glog.Fatalf("Failed to run iptables command to insert in %s chain %s", chain, err.Error())
+				klog.Fatalf("Failed to run iptables command to insert in %s chain %s", chain, err.Error())
 			}
 			return
 		}
 		rules, err := iptablesCmdHandler.List("filter", chain)
 		if err != nil {
-			glog.Fatalf("failed to list rules in filter table %s chain due to %s", chain, err.Error())
+			klog.Fatalf("failed to list rules in filter table %s chain due to %s", chain, err.Error())
 		}
 
 		var ruleNo, ruleIndexOffset int
@@ -320,11 +320,11 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 		if ruleNo != position {
 			err = iptablesCmdHandler.Insert("filter", chain, position, ruleSpec...)
 			if err != nil {
-				glog.Fatalf("Failed to run iptables command to insert in %s chain %s", chain, err.Error())
+				klog.Fatalf("Failed to run iptables command to insert in %s chain %s", chain, err.Error())
 			}
 			err = iptablesCmdHandler.Delete("filter", chain, strconv.Itoa(ruleNo+1))
 			if err != nil {
-				glog.Fatalf("Failed to delete incorrect rule in %s chain due to %s", chain, err.Error())
+				klog.Fatalf("Failed to delete incorrect rule in %s chain due to %s", chain, err.Error())
 			}
 		}
 	}
@@ -334,12 +334,12 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 	for builtinChain, customChain := range chains {
 		err = iptablesCmdHandler.NewChain("filter", customChain)
 		if err != nil && err.(*iptables.Error).ExitStatus() != 1 {
-			glog.Fatalf("Failed to run iptables command to create %s chain due to %s", customChain, err.Error())
+			klog.Fatalf("Failed to run iptables command to create %s chain due to %s", customChain, err.Error())
 		}
 		args := []string{"-m", "comment", "--comment", "kube-router netpol", "-j", customChain}
 		uuid, err := addUUIDForRuleSpec(builtinChain, &args)
 		if err != nil {
-			glog.Fatalf("Failed to get uuid for rule: %s", err.Error())
+			klog.Fatalf("Failed to get uuid for rule: %s", err.Error())
 		}
 		ensureRuleAtPosition(builtinChain, args, uuid, 1)
 	}
@@ -347,7 +347,7 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 	whitelistServiceVips := []string{"-m", "comment", "--comment", "allow traffic to cluster IP", "-d", npc.serviceClusterIPRange.String(), "-j", "RETURN"}
 	uuid, err := addUUIDForRuleSpec(kubeInputChainName, &whitelistServiceVips)
 	if err != nil {
-		glog.Fatalf("Failed to get uuid for rule: %s", err.Error())
+		klog.Fatalf("Failed to get uuid for rule: %s", err.Error())
 	}
 	ensureRuleAtPosition(kubeInputChainName, whitelistServiceVips, uuid, 1)
 
@@ -355,7 +355,7 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 		"-m", "multiport", "--dports", npc.serviceNodePortRange, "-j", "RETURN"}
 	uuid, err = addUUIDForRuleSpec(kubeInputChainName, &whitelistTCPNodeports)
 	if err != nil {
-		glog.Fatalf("Failed to get uuid for rule: %s", err.Error())
+		klog.Fatalf("Failed to get uuid for rule: %s", err.Error())
 	}
 	ensureRuleAtPosition(kubeInputChainName, whitelistTCPNodeports, uuid, 2)
 
@@ -363,7 +363,7 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 		"-m", "multiport", "--dports", npc.serviceNodePortRange, "-j", "RETURN"}
 	uuid, err = addUUIDForRuleSpec(kubeInputChainName, &whitelistUDPNodeports)
 	if err != nil {
-		glog.Fatalf("Failed to get uuid for rule: %s", err.Error())
+		klog.Fatalf("Failed to get uuid for rule: %s", err.Error())
 	}
 	ensureRuleAtPosition(kubeInputChainName, whitelistUDPNodeports, uuid, 3)
 
@@ -371,14 +371,14 @@ func (npc *NetworkPolicyController) ensureTopLevelChains() {
 		whitelistServiceVips := []string{"-m", "comment", "--comment", "allow traffic to external IP range: " + externalIPRange.String(), "-d", externalIPRange.String(), "-j", "RETURN"}
 		uuid, err = addUUIDForRuleSpec(kubeInputChainName, &whitelistServiceVips)
 		if err != nil {
-			glog.Fatalf("Failed to get uuid for rule: %s", err.Error())
+			klog.Fatalf("Failed to get uuid for rule: %s", err.Error())
 		}
 		ensureRuleAtPosition(kubeInputChainName, whitelistServiceVips, uuid, externalIPIndex+4)
 	}
 
 }
 
-func (npc *NetworkPolicyController) cleanupStaleRules(activePolicyChains, activePodFwChains, activePolicyIPSets map[string]bool) error {
+func (npc *NetworkPolicyController) cleanupStaleRules(activePolicyChains, activePodFwChains map[string]bool) error {
 
 	cleanupPodFwChains := make([]string, 0)
 	cleanupPolicyChains := make([]string, 0)
@@ -386,13 +386,13 @@ func (npc *NetworkPolicyController) cleanupStaleRules(activePolicyChains, active
 	// initialize tool sets for working with iptables and ipset
 	iptablesCmdHandler, err := iptables.New()
 	if err != nil {
-		glog.Fatalf("failed to initialize iptables command executor due to %s", err.Error())
+		return fmt.Errorf("failed to initialize iptables command executor due to %s", err.Error())
 	}
 
 	// find iptables chains and ipsets that are no longer used by comparing current to the active maps we were passed
 	chains, err := iptablesCmdHandler.ListChains("filter")
 	if err != nil {
-		return fmt.Errorf("Unable to list chains: %s", err)
+		return fmt.Errorf("unable to list chains: %s", err)
 	}
 	for _, chain := range chains {
 		if strings.HasPrefix(chain, kubeNetworkPolicyChainPrefix) {
@@ -452,11 +452,11 @@ func (npc *NetworkPolicyController) cleanupStaleIPSets(activePolicyIPSets map[st
 	cleanupPolicyIPSets := make([]*utils.Set, 0)
 	ipsets, err := utils.NewIPSet(false)
 	if err != nil {
-		glog.Fatalf("failed to create ipsets command executor due to %s", err.Error())
+		return fmt.Errorf("failed to create ipsets command executor due to %s", err.Error())
 	}
 	err = ipsets.Save()
 	if err != nil {
-		glog.Fatalf("failed to initialize ipsets command executor due to %s", err.Error())
+		klog.Fatalf("failed to initialize ipsets command executor due to %s", err.Error())
 	}
 	for _, set := range ipsets.Sets {
 		if strings.HasPrefix(set.Name, kubeSourceIPSetPrefix) ||
@@ -470,7 +470,7 @@ func (npc *NetworkPolicyController) cleanupStaleIPSets(activePolicyIPSets map[st
 	for _, set := range cleanupPolicyIPSets {
 		err = set.Destroy()
 		if err != nil {
-			return fmt.Errorf("Failed to delete ipset %s due to %s", set.Name, err)
+			return fmt.Errorf("failed to delete ipset %s due to %s", set.Name, err)
 		}
 	}
 	return nil
@@ -479,27 +479,28 @@ func (npc *NetworkPolicyController) cleanupStaleIPSets(activePolicyIPSets map[st
 // Cleanup cleanup configurations done
 func (npc *NetworkPolicyController) Cleanup() {
 
-	glog.Info("Cleaning up iptables configuration permanently done by kube-router")
+	klog.Info("Cleaning up iptables configuration permanently done by kube-router")
 
 	iptablesCmdHandler, err := iptables.New()
 	if err != nil {
-		glog.Errorf("Failed to initialize iptables executor: %s", err.Error())
+		klog.Errorf("Failed to initialize iptables executor: %s", err.Error())
+		return
 	}
 
 	// delete jump rules in FORWARD chain to pod specific firewall chain
 	forwardChainRules, err := iptablesCmdHandler.List("filter", kubeForwardChainName)
 	if err != nil {
-		glog.Errorf("Failed to delete iptables rules as part of cleanup")
+		klog.Errorf("Failed to delete iptables rules as part of cleanup")
 		return
 	}
 
-	// TODO: need a better way to delte rule with out using number
+	// TODO: need a better way to delete rule with out using number
 	var realRuleNo int
 	for i, rule := range forwardChainRules {
 		if strings.Contains(rule, kubePodFirewallChainPrefix) {
 			err = iptablesCmdHandler.Delete("filter", kubeForwardChainName, strconv.Itoa(i-realRuleNo))
 			if err != nil {
-				glog.Errorf("Failed to delete iptables rule as part of cleanup: %s", err)
+				klog.Errorf("Failed to delete iptables rule as part of cleanup: %s", err)
 			}
 			realRuleNo++
 		}
@@ -508,17 +509,17 @@ func (npc *NetworkPolicyController) Cleanup() {
 	// delete jump rules in OUTPUT chain to pod specific firewall chain
 	forwardChainRules, err = iptablesCmdHandler.List("filter", kubeOutputChainName)
 	if err != nil {
-		glog.Errorf("Failed to delete iptables rules as part of cleanup")
+		klog.Errorf("Failed to delete iptables rules as part of cleanup")
 		return
 	}
 
-	// TODO: need a better way to delte rule with out using number
+	// TODO: need a better way to delete rule with out using number
 	realRuleNo = 0
 	for i, rule := range forwardChainRules {
 		if strings.Contains(rule, kubePodFirewallChainPrefix) {
 			err = iptablesCmdHandler.Delete("filter", kubeOutputChainName, strconv.Itoa(i-realRuleNo))
 			if err != nil {
-				glog.Errorf("Failed to delete iptables rule as part of cleanup: %s", err)
+				klog.Errorf("Failed to delete iptables rule as part of cleanup: %s", err)
 			}
 			realRuleNo++
 		}
@@ -527,19 +528,19 @@ func (npc *NetworkPolicyController) Cleanup() {
 	// flush and delete pod specific firewall chain
 	chains, err := iptablesCmdHandler.ListChains("filter")
 	if err != nil {
-		glog.Errorf("Unable to list chains: %s", err)
+		klog.Errorf("Unable to list chains: %s", err)
 		return
 	}
 	for _, chain := range chains {
 		if strings.HasPrefix(chain, kubePodFirewallChainPrefix) {
 			err = iptablesCmdHandler.ClearChain("filter", chain)
 			if err != nil {
-				glog.Errorf("Failed to cleanup iptables rules: " + err.Error())
+				klog.Errorf("Failed to cleanup iptables rules: " + err.Error())
 				return
 			}
 			err = iptablesCmdHandler.DeleteChain("filter", chain)
 			if err != nil {
-				glog.Errorf("Failed to cleanup iptables rules: " + err.Error())
+				klog.Errorf("Failed to cleanup iptables rules: " + err.Error())
 				return
 			}
 		}
@@ -548,19 +549,19 @@ func (npc *NetworkPolicyController) Cleanup() {
 	// flush and delete per network policy specific chain
 	chains, err = iptablesCmdHandler.ListChains("filter")
 	if err != nil {
-		glog.Errorf("Unable to list chains: %s", err)
+		klog.Errorf("Unable to list chains: %s", err)
 		return
 	}
 	for _, chain := range chains {
 		if strings.HasPrefix(chain, kubeNetworkPolicyChainPrefix) {
 			err = iptablesCmdHandler.ClearChain("filter", chain)
 			if err != nil {
-				glog.Errorf("Failed to cleanup iptables rules: " + err.Error())
+				klog.Errorf("Failed to cleanup iptables rules: " + err.Error())
 				return
 			}
 			err = iptablesCmdHandler.DeleteChain("filter", chain)
 			if err != nil {
-				glog.Errorf("Failed to cleanup iptables rules: " + err.Error())
+				klog.Errorf("Failed to cleanup iptables rules: " + err.Error())
 				return
 			}
 		}
@@ -569,17 +570,18 @@ func (npc *NetworkPolicyController) Cleanup() {
 	// delete all ipsets
 	ipset, err := utils.NewIPSet(false)
 	if err != nil {
-		glog.Errorf("Failed to clean up ipsets: " + err.Error())
+		klog.Errorf("Failed to clean up ipsets: " + err.Error())
+		return
 	}
 	err = ipset.Save()
 	if err != nil {
-		glog.Errorf("Failed to clean up ipsets: " + err.Error())
+		klog.Errorf("Failed to clean up ipsets: " + err.Error())
 	}
 	err = ipset.DestroyAllWithin()
 	if err != nil {
-		glog.Errorf("Failed to clean up ipsets: " + err.Error())
+		klog.Errorf("Failed to clean up ipsets: " + err.Error())
 	}
-	glog.Infof("Successfully cleaned the iptables configuration done by kube-router")
+	klog.Infof("Successfully cleaned the iptables configuration done by kube-router")
 }
 
 // NewNetworkPolicyController returns new NetworkPolicyController object
@@ -601,7 +603,7 @@ func NewNetworkPolicyController(clientset kubernetes.Interface,
 	npc.serviceClusterIPRange = *ipnet
 
 	// Validate and parse NodePort range
-	nodePortValidator := regexp.MustCompile(`^([0-9]+)[:-]{1}([0-9]+)$`)
+	nodePortValidator := regexp.MustCompile(`^([0-9]+)[:-]([0-9]+)$`)
 	if matched := nodePortValidator.MatchString(config.NodePortRange); !matched {
 		return nil, fmt.Errorf("failed to parse node port range given: '%s' please see specification in help text", config.NodePortRange)
 	}

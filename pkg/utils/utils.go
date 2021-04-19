@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"io"
 	"sync"
 )
 
@@ -20,11 +21,6 @@ type Broadcaster struct {
 	listeners    []Listener
 }
 
-// NewBroadcaster returns an instance of Broadcaster object
-func NewBroadcaster() *Broadcaster {
-	return &Broadcaster{}
-}
-
 // Add lets to register a listener
 func (b *Broadcaster) Add(listener Listener) {
 	b.listenerLock.Lock()
@@ -40,4 +36,10 @@ func (b *Broadcaster) Notify(instance interface{}) {
 	for _, listener := range listeners {
 		go listener.OnUpdate(instance)
 	}
+}
+
+// CloseCloserDisregardError it is a common need throughout kube-router's code base to need close a closer in defer
+// statements, this allows an action like that to pass a linter as well as describe its intention well
+func CloseCloserDisregardError(handler io.Closer) {
+	_ = handler.Close()
 }

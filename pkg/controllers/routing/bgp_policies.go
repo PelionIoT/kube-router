@@ -3,13 +3,14 @@ package routing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
 	gobgpapi "github.com/osrg/gobgp/api"
 	v1core "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/cloudnativelabs/kube-router/pkg/utils"
 )
@@ -23,27 +24,27 @@ func (nrc *NetworkRoutingController) AddPolicies() error {
 
 	err := nrc.addPodCidrDefinedSet()
 	if err != nil {
-		glog.Errorf("Failed to add `podcidrdefinedset` defined set: %s", err)
+		klog.Errorf("Failed to add `podcidrdefinedset` defined set: %s", err)
 	}
 
 	err = nrc.addServiceVIPsDefinedSet()
 	if err != nil {
-		glog.Errorf("Failed to add `servicevipsdefinedset` defined set: %s", err)
+		klog.Errorf("Failed to add `servicevipsdefinedset` defined set: %s", err)
 	}
 
 	iBGPPeerCIDRs, err := nrc.addiBGPPeersDefinedSet()
 	if err != nil {
-		glog.Errorf("Failed to add `iBGPpeerset` defined set: %s", err)
+		klog.Errorf("Failed to add `iBGPpeerset` defined set: %s", err)
 	}
 
 	externalBGPPeerCIDRs, err := nrc.addExternalBGPPeersDefinedSet()
 	if err != nil {
-		glog.Errorf("Failed to add `externalpeerset` defined set: %s", err)
+		klog.Errorf("Failed to add `externalpeerset` defined set: %s", err)
 	}
 
 	err = nrc.addAllBGPPeersDefinedSet(iBGPPeerCIDRs, externalBGPPeerCIDRs)
 	if err != nil {
-		glog.Errorf("Failed to add `allpeerset` defined set: %s", err)
+		klog.Errorf("Failed to add `allpeerset` defined set: %s", err)
 	}
 
 	err = nrc.addExportPolicies()
@@ -71,7 +72,10 @@ func (nrc *NetworkRoutingController) addPodCidrDefinedSet() error {
 		return err
 	}
 	if currentDefinedSet == nil {
-		cidrLen, _ := strconv.Atoi(strings.Split(nrc.podCidr, "/")[1])
+		cidrLen, err := strconv.Atoi(strings.Split(nrc.podCidr, "/")[1])
+		if err != nil || cidrLen < 0 || cidrLen > 32 {
+			return fmt.Errorf("the pod CIDR IP given is not a proper mask: %d", cidrLen)
+		}
 		podCidrDefinedSet := &gobgpapi.DefinedSet{
 			DefinedType: gobgpapi.DefinedType_PREFIX,
 			Name:        "podcidrdefinedset",
@@ -130,13 +134,13 @@ func (nrc *NetworkRoutingController) addServiceVIPsDefinedSet() error {
 		}
 	}
 	for _, currentPrefix := range currentDefinedSet.Prefixes {
-		delete := true
+		shouldDelete := true
 		for _, prefix := range advIPPrefixList {
 			if currentPrefix.IpPrefix == prefix.IpPrefix {
-				delete = false
+				shouldDelete = false
 			}
 		}
-		if delete {
+		if shouldDelete {
 			toDelete = append(toDelete, currentPrefix)
 		}
 	}
@@ -174,7 +178,7 @@ func (nrc *NetworkRoutingController) addiBGPPeersDefinedSet() ([]string, error) 
 		nodeObj := node.(*v1core.Node)
 		nodeIP, err := utils.GetNodeIP(nodeObj)
 		if err != nil {
-			glog.Errorf("Failed to find a node IP and therefore cannot add internal BGP Peer: %v", err)
+			klog.Errorf("Failed to find a node IP and therefore cannot add internal BGP Peer: %v", err)
 			continue
 		}
 		iBGPPeerCIDRs = append(iBGPPeerCIDRs, nodeIP.String()+"/32")
@@ -216,13 +220,13 @@ func (nrc *NetworkRoutingController) addiBGPPeersDefinedSet() ([]string, error) 
 		}
 	}
 	for _, currentPrefix := range currentDefinedSet.List {
-		delete := true
+		shouldDelete := true
 		for _, prefix := range iBGPPeerCIDRs {
 			if currentPrefix == prefix {
-				delete = false
+				shouldDelete = false
 			}
 		}
-		if delete {
+		if shouldDelete {
 			toDelete = append(toDelete, currentPrefix)
 		}
 	}
@@ -322,13 +326,13 @@ func (nrc *NetworkRoutingController) addAllBGPPeersDefinedSet(iBGPPeerCIDRs, ext
 		}
 	}
 	for _, currentPeer := range currentDefinedSet.List {
-		delete := true
+		shouldDelete := true
 		for _, peer := range allBgpPeers {
 			if peer == currentPeer {
-				delete = false
+				shouldDelete = false
 			}
 		}
-		if delete {
+		if shouldDelete {
 			toDelete = append(toDelete, currentPeer)
 		}
 	}
