@@ -115,6 +115,7 @@ type NetworkRoutingController struct {
 	localAddressList               []string
 	overrideNextHop                bool
 	podCidr                        string
+	isLocal                        bool
 	CNIFirewallSetup               *sync.Cond
 
 	nodeLister cache.Indexer
@@ -678,6 +679,12 @@ func (nrc *NetworkRoutingController) syncNodeIPSets() error {
 		if podCIDR == "" {
 			podCIDR = node.Spec.PodCIDR
 		}
+
+		// podCIDR is local and will never change. This breaks node-to-node routing, use wisely
+		if nrc.isLocal {
+			podCIDR = nrc.podCidr
+		}
+
 		if podCIDR == "" {
 			klog.Warningf("Couldn't determine PodCIDR of the %v node", node.Name)
 			continue
@@ -1069,7 +1076,7 @@ func NewNetworkRoutingController(clientset kubernetes.Interface,
 		}
 	}
 
-	cidr, err := utils.GetPodCidrFromNodeSpec(clientset, nrc.hostnameOverride)
+	cidr, err := utils.GetPodCidrFromNodeSpec(clientset, nrc.hostnameOverride, kubeRouterConfig.PodCIDR)
 	if err != nil {
 		klog.Fatalf("Failed to get pod CIDR from node spec. kube-router relies on kube-controller-manager to allocate pod CIDR for the node or an annotation `kube-router.io/pod-cidr`. Error: %v", err)
 		return nil, fmt.Errorf("failed to get pod CIDR details from Node.spec: %s", err.Error())
@@ -1182,6 +1189,10 @@ func NewNetworkRoutingController(clientset kubernetes.Interface,
 
 	nrc.nodeLister = nodeInformer.GetIndexer()
 	nrc.NodeEventHandler = nrc.newNodeEventHandler()
+
+	if kubeRouterConfig.PodCIDR != "" {
+		nrc.isLocal = true
+	}
 
 	return &nrc, nil
 }

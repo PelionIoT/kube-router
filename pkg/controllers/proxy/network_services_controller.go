@@ -2431,7 +2431,7 @@ func NewNetworkServicesController(clientset kubernetes.Interface,
 	}
 
 	if config.RunRouter {
-		cidr, err := utils.GetPodCidrFromNodeSpec(nsc.client, config.HostnameOverride)
+		cidr, err := utils.GetPodCidrFromNodeSpec(nsc.client, config.HostnameOverride, config.PodCIDR)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get pod CIDR details from Node.spec: %s", err.Error())
 		}
