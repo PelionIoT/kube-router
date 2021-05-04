@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -90,8 +91,22 @@ func (kr *KubeRouter) Run() error {
 	go hc.RunServer(stopCh, &wg)
 
 	informerFactory := informers.NewSharedInformerFactory(kr.Client, 0)
-	svcInformer := informerFactory.Core().V1().Services().Informer()
-	epInformer := informerFactory.Core().V1().Endpoints().Informer()
+
+	// Pelion addition, PodCIDR from argument
+	dummyFactory := informers.NewSharedInformerFactory(kr.Client, 0)
+	var svcInformer cache.SharedIndexInformer
+	var epInformer cache.SharedIndexInformer
+	if len(kr.Config.PodCIDR) > 0 {
+		// Services and Endpoints are disabled. The dummy informers are used in order
+		// to avoid modifying arguments and functionality across the kube-router code.
+		// This way the informers are initialized, but never started.
+		svcInformer = dummyFactory.Core().V1().Services().Informer()
+		epInformer = dummyFactory.Core().V1().Endpoints().Informer()
+	} else {
+		svcInformer = informerFactory.Core().V1().Services().Informer()
+		epInformer = informerFactory.Core().V1().Endpoints().Informer()
+	}
+
 	podInformer := informerFactory.Core().V1().Pods().Informer()
 	nodeInformer := informerFactory.Core().V1().Nodes().Informer()
 	nsInformer := informerFactory.Core().V1().Namespaces().Informer()
