@@ -319,9 +319,14 @@ func (nrc *NetworkRoutingController) Run(healthChan chan<- *healthcheck.Controll
 		}
 
 		// advertise or withdraw IPs for the services to be reachable via host
-		toAdvertise, toWithdraw, err := nrc.getActiveVIPs()
-		if err != nil {
-			klog.Errorf("failed to get routes to advertise/withdraw %s", err)
+		// only if the node is NOT local, otherwise we do not use svc and endpoints
+		toAdvertise := make([]string, 0)
+		toWithdraw := make([]string, 0)
+		if !nrc.isLocal {
+			toAdvertise, toWithdraw, err = nrc.getActiveVIPs()
+			if err != nil {
+				klog.Errorf("failed to get routes to advertise/withdraw %s", err)
+			}
 		}
 
 		klog.V(1).Infof("Performing periodic sync of service VIP routes")
