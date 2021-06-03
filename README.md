@@ -9,6 +9,14 @@
 
 Kube-router is a turnkey solution for Kubernetes networking with aim to provide operational simplicity and high performance.
 
+## Pelion Modifications
+
+kube-router is slightly modified to run in the Pelion environment. These modifcations include:
+- Disabling `Services` and `Endpoints`
+- Provide PodCIDR as startup argument, used as IP range for Pods on this Node
+
+See [Pelion Usage](./docs/pelion.md) for additional instructions.
+
 ## Primary Features
 
 *kube-router does it all.*
